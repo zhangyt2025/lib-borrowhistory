@@ -95,7 +95,8 @@ router.get('/search', async (req, res) => {
       if (keyword) {
         whereCondition.OR.push(
           { title: { contains: keyword } },
-          { author: { contains: keyword } }
+          { author: { contains: keyword } },
+          { isbn: { contains: keyword } }
         );
       }
     }

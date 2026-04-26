@@ -46,6 +46,8 @@ function formatDate(value) {
 
 export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
   const [books, setBooks] = useState([])
+  const [searchTerm, setSearchTerm] = useState('')  //搜索关键词
+  const [searchResults, setSearchResults] = useState(null)  //搜索结果
   const [form, setForm] = useState(initialForm)
   const [editingBookId, setEditingBookId] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -67,6 +69,51 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
       setError(fetchError.message || '获取图书列表失败')
     } finally {
       setLoading(false)
+    }
+  }
+  // 搜索图书函数
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) {
+      // 如果搜索词为空，恢复显示全部图书
+      setSearchResults(null)
+      return
+    }
+
+    setLoading(true)
+    setError('')
+  
+    try {
+      const response = await fetch(`http://localhost:3001/api/books/search?keyword=${encodeURIComponent(searchTerm)}`)
+      const data = await response.json()
+    
+      if (data.success) {
+        setSearchResults(data.data)
+        console.log('搜索结果数量:', data.data.length)
+        console.log('搜索结果:', data.data)
+        if (data.data.length === 0) {
+          setError('No books found')
+        } else {
+          setError('')
+        }
+      } else {
+        setSearchResults([])
+        setError('No books found')
+      }
+    } catch (err) {
+      console.error('搜索失败:', err)
+      setError('搜索失败，请稍后重试')
+      setSearchResults([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 处理搜索输入变化
+  const handleSearchChange = (e) => {
+    setSearchTerm(e.target.value)
+    if (e.target.value.trim() === '') {
+      setSearchResults(null)  // 清空搜索时恢复全部列表
+      setError('')
     }
   }
 
@@ -458,23 +505,37 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
             <div>
               <h2 className="text-xl font-bold text-gray-800">馆藏列表</h2>
-              <p className="text-sm text-gray-500 mt-1">当前共 {books.length} 本图书记录</p>
+              <p className="text-sm text-gray-500 mt-1">
+                当前共 {searchResults !== null ? searchResults.length : books.length} 本图书记录
+              </p>
             </div>
-            <button
-              onClick={() => void fetchBooks()}
-              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 transition"
-            >
-              刷新列表
-            </button>
+  
+            {/* 搜索框 */} 
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={handleSearchChange}
+                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                placeholder="按书名、作者或ISBN搜索..."
+                className="w-64 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={handleSearch}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+              >
+                搜索
+              </button>
+            </div>
           </div>
 
           {loading ? (
             <div className="py-12 text-center text-gray-500">正在加载图书列表...</div>
-          ) : books.length === 0 ? (
+          ) : (searchResults !== null ? searchResults.length === 0 : books.length === 0) ? (
             <div className="py-12 text-center text-gray-500">还没有图书记录，先在左侧新增一本吧。</div>
           ) : (
             <div className="space-y-4">
-              {books.map((book) => (
+              {(searchResults !== null ? searchResults : books).map((book) => (
                 <article
                   key={book.id}
                   className="border border-gray-200 rounded-xl p-5 hover:border-blue-200 transition"

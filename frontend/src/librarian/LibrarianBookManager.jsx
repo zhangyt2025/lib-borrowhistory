@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import IsbnBarcode from '../components/IsbnBarcode'
 import { LIBRARIAN_API_URL } from './api'
 
 const initialForm = {
@@ -44,6 +45,15 @@ function formatDate(value) {
   })
 }
 
+function normalizeIsbn(value) {
+  return String(value || '')
+    .trim()
+    .normalize('NFKC')
+    .toUpperCase()
+    .replace(/^ISBN(?:-1[03])?[：:]?/, '')
+    .replace(/[^0-9X]/g, '');
+}
+
 export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
   const [books, setBooks] = useState([])
   const [searchTerm, setSearchTerm] = useState('')  //搜索关键词
@@ -52,6 +62,7 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
   const [editingBookId, setEditingBookId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [lookupLoading, setLookupLoading] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -142,6 +153,54 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
   const handleUnauthorized = () => {
     setError('登录状态已失效，请重新登录')
     if (onLogout) onLogout()
+  }
+
+  const handleLookupByIsbn = async () => {
+    const isbn = normalizeIsbn(form.isbn)
+
+    if (!isbn) {
+      setError('请先输入 ISBN')
+      setSuccess('')
+      return
+    }
+
+    setLookupLoading(true)
+    setError('')
+    setSuccess('')
+    setForm((current) => ({
+      ...current,
+      isbn,
+      title: '',
+      author: '',
+      genre: '',
+      language: '',
+      description: '',
+    }))
+
+    try {
+      const params = new URLSearchParams({ isbn })
+      const response = await fetch(`${LIBRARIAN_API_URL}/books/lookup?${params}`)
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || '联网获取图书信息失败')
+      }
+
+      setForm((current) => ({
+        ...current,
+        isbn: data.data.isbn || isbn,
+        title: data.data.title || '',
+        author: data.data.author || '',
+        genre: data.data.genre || '',
+        language: data.data.language || '',
+        description: data.data.description || '',
+      }))
+      setSuccess('已通过 ISBN 获取图书信息')
+    } catch (lookupError) {
+      setError(lookupError.message || '联网获取图书信息失败')
+    } finally {
+      setLookupLoading(false)
+    }
   }
 
   const handleSubmit = async (event) => {
@@ -344,13 +403,26 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">ISBN *</label>
-              <input
-                name="isbn"
-                value={form.isbn}
-                onChange={handleChange}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
-                placeholder="请输入唯一 ISBN"
-              />
+              <div className="flex gap-2">
+                <input
+                  name="isbn"
+                  value={form.isbn}
+                  onChange={handleChange}
+                  className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
+                  placeholder="请输入唯一 ISBN"
+                />
+                <button
+                  type="button"
+                  onClick={handleLookupByIsbn}
+                  disabled={lookupLoading || saving}
+                  className="rounded-lg bg-emerald-500 px-4 py-2 font-semibold text-white hover:bg-emerald-600 transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {lookupLoading ? '获取中...' : '联网获取'}
+                </button>
+              </div>
+              <div className="mt-3">
+                <IsbnBarcode isbn={form.isbn} height={56} />
+              </div>
             </div>
 
             <div>
@@ -559,6 +631,9 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
                       <p className="text-sm text-gray-600 mb-2">
                         作者：{book.author} | ISBN：{book.isbn}
                       </p>
+                      <div className="mb-3 max-w-xs">
+                        <IsbnBarcode isbn={book.isbn} height={48} />
+                      </div>
                       <p className="text-sm text-gray-600 mb-2">
                         语言：{book.language || '暂无'}
                       </p>

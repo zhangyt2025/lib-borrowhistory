@@ -10,6 +10,18 @@ export default function LibrarianSearchBorrowHistory({ onBack }) {
   const [error, setError] = useState('')
   const [searchPerformed, setSearchPerformed] = useState(false)
 
+  const formatCurrency = (amount) => {
+    const safeAmount = Number(amount || 0)
+    return `¥${safeAmount.toFixed(2)}`
+  }
+
+  const formatFineDisplay = (record) => {
+    if (record.fineForgiven) {
+      return '已免罚'
+    }
+    return formatCurrency(record.estimatedFineAmount)
+  }
+
   // 查询借阅历史
   const searchBorrowHistory = async () => {
     if (!searchValue.trim()) {
@@ -82,16 +94,6 @@ export default function LibrarianSearchBorrowHistory({ onBack }) {
       hour: '2-digit',
       minute: '2-digit'
     })
-  }
-
-  // 计算逾期天数
-  const getOverdueDays = (dueDate) => {
-    if (!dueDate) return 0
-    const due = new Date(dueDate)
-    const now = new Date()
-    const diffTime = now - due
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-    return diffDays > 0 ? diffDays : 0
   }
 
   return (
@@ -190,7 +192,7 @@ export default function LibrarianSearchBorrowHistory({ onBack }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-gray-500">用户名</p>
-                  <p className="font-semibold text-gray-800">{userInfo.username || '-'}</p>
+                  <p className="font-semibold text-gray-800">{userInfo.email || '-'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">学号</p>
@@ -229,14 +231,13 @@ export default function LibrarianSearchBorrowHistory({ onBack }) {
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">应还时间</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">还书时间</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">状态</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">罚款</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {borrowHistory.map((record, index) => {
                         const statusInfo = getStatusInfo(record.status)
-                        const overdueDays = record.status === 'overdue' || (record.status === 'borrowed' && record.dueDate) 
-                          ? getOverdueDays(record.dueDate) 
-                          : 0
+                        const overdueDays = Number(record.overdueDays || 0)
                         
                         return (
                           <tr key={record.id || index} className="hover:bg-gray-50 transition">
@@ -262,6 +263,9 @@ export default function LibrarianSearchBorrowHistory({ onBack }) {
                                 <span>{statusInfo.icon}</span>
                                 <span>{statusInfo.text}</span>
                               </span>
+                            </td>
+                            <td className={`px-4 py-3 text-sm ${record.estimatedFineAmount > 0 || record.fineForgiven ? 'text-red-600 font-semibold' : 'text-gray-600'}`}>
+                              {formatFineDisplay(record)}
                             </td>
                           </tr>
                         )

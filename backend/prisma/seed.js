@@ -1,5 +1,9 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
+const {
+  DEFAULT_FINE_RATE_PER_DAY,
+  calculateOverdueSummary,
+} = require('../src/lib/fines');
 const prisma = new PrismaClient();
 
 // 配置常量
@@ -357,8 +361,14 @@ for (const librarianData of TEST_ACCOUNTS.librarians) {
   console.log('⚙️  创建系统配置...');
   
   for (const config of SYSTEM_CONFIGS) {
-    await prisma.config.create({
-      data: {
+    await prisma.config.upsert({
+      where: {
+        key: config.key,
+      },
+      update: {
+        value: config.value,
+      },
+      create: {
         key: config.key,
         value: config.value,
       },
@@ -452,11 +462,9 @@ for (const librarianData of TEST_ACCOUNTS.librarians) {
       const isReturned = Math.random() > 0.5;
       const returnDate = isReturned ? new Date(dueDate.getTime() + getRandomInt(-5, 10) * 24 * 60 * 60 * 1000) : null;
       
-      let fineAmount = 0;
-      if (returnDate && returnDate > dueDate) {
-        const diffDays = Math.ceil((returnDate - dueDate) / (1000 * 60 * 60 * 24));
-        fineAmount = diffDays * 0.5;
-      }
+      const fineAmount = returnDate
+        ? calculateOverdueSummary(dueDate, returnDate, DEFAULT_FINE_RATE_PER_DAY).estimatedFineAmount
+        : 0;
 
       await prisma.loan.create({
         data: {
@@ -558,7 +566,7 @@ for (const librarianData of TEST_ACCOUNTS.librarians) {
   console.log(`   图书总数: ${bookCount}`);
   console.log(`   副本总数: ${copyCount}`);
   console.log(`   学生总数: ${students.length}`);
-  console.log(`   馆员总数: ${librarians.length}`);
+  console.log(`   馆员总数: ${TEST_ACCOUNTS.librarians.length}`);
   
   console.log('\n💡 提示：');
   console.log('   1. 馆员登录请使用统一登录接口，选择 "librarian" 类型');

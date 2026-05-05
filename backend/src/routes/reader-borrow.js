@@ -1,40 +1,45 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
-const { requireLibrarianAuth } = require('../middleware/librarianAuth');
+const {
+  getFineRatePerDay,
+  decorateLoanWithFine,
+  buildReturnSummary,
+} = require('../lib/fines');
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 const MAX_BORROW_LIMIT = 5;
 const RENEW_DAYS = 14;
 
-// 获取我的借阅列表
 router.get('/my-borrows', requireAuth, async (req, res) => {
   try {
+    const fineRatePerDay = await getFineRatePerDay();
     const loans = await prisma.loan.findMany({
-      where: { userId: req.user.id, returnDate: null },
+      where: { userId: req.user.id },
       include: {
         copy: {
           include: { book: true }
         }
       },
-      orderBy: { dueDate: 'asc' }
+      orderBy: { checkoutDate: 'desc' }
     });
-    res.json({ loans });
+
+    res.json({
+      loans: loans.map((loan) => decorateLoanWithFine(loan, fineRatePerDay))
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: '获取借阅列表失败' });
   }
 });
 
-// 获取可借副本列表
 router.get('/available-copies/:bookId', requireAuth, async (req, res) => {
   try {
     const bookId = parseInt(req.params.bookId);
     const copies = await prisma.copy.findMany({
       where: {
-        bookId: bookId,
+        bookId,
         status: 'AVAILABLE'
       },
       select: {
@@ -53,7 +58,6 @@ router.get('/available-copies/:bookId', requireAuth, async (req, res) => {
   }
 });
 
-// 借阅图书（选择具体副本）
 router.post('/borrow/:copyId', requireAuth, async (req, res) => {
   try {
     const copyId = parseInt(req.params.copyId);
@@ -74,6 +78,7 @@ router.post('/borrow/:copyId', requireAuth, async (req, res) => {
     const currentCount = await prisma.loan.count({
       where: { userId: req.user.id, returnDate: null }
     });
+
     if (currentCount >= MAX_BORROW_LIMIT) {
       return res.status(400).json({ message: `最多同时借阅${MAX_BORROW_LIMIT}本书` });
     }
@@ -85,6 +90,7 @@ router.post('/borrow/:copyId', requireAuth, async (req, res) => {
         returnDate: null
       }
     });
+
     if (existingLoan) {
       return res.status(400).json({ message: '您已借阅过这本书，请先归还' });
     }
@@ -94,9 +100,9 @@ router.post('/borrow/:copyId', requireAuth, async (req, res) => {
 
     const loan = await prisma.loan.create({
       data: {
-        copyId: copyId,
+        copyId,
         userId: req.user.id,
-        dueDate: dueDate,
+        dueDate,
         fineAmount: 0,
         finePaid: false,
         fineForgiven: false
@@ -128,11 +134,10 @@ router.post('/borrow/:copyId', requireAuth, async (req, res) => {
   }
 });
 
-// 续借图书 - 使用 copyId
 router.post('/renew', requireAuth, async (req, res) => {
   try {
     const { copyId } = req.body;
-    
+
     if (!copyId) {
       return res.status(400).json({ message: '请提供副本ID' });
     }
@@ -157,10 +162,10 @@ router.post('/renew', requireAuth, async (req, res) => {
       data: { dueDate: newDueDate }
     });
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: '续借成功',
-      newDueDate: newDueDate
+      newDueDate
     });
   } catch (error) {
     console.error('续借错误:', error);
@@ -168,23 +173,36 @@ router.post('/renew', requireAuth, async (req, res) => {
   }
 });
 
-// 归还图书
 router.post('/return/:loanId', requireAuth, async (req, res) => {
   try {
     const loanId = parseInt(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, userId: req.user.id, returnDate: null },
-      include: { copy: true }
+      include: {
+        user: true,
+        copy: {
+          include: { book: true }
+        }
+      }
     });
 
     if (!loan) {
       return res.status(404).json({ message: '借阅记录不存在或已归还' });
     }
 
-    await prisma.loan.update({
+    const fineRatePerDay = await getFineRatePerDay();
+    const returnDate = new Date();
+    const returnSummary = buildReturnSummary(loan, returnDate, fineRatePerDay);
+
+    const updatedLoan = await prisma.loan.update({
       where: { id: loanId },
-      data: { returnDate: new Date() }
+      data: {
+        returnDate,
+        fineAmount: returnSummary.fineAmount,
+        finePaid: returnSummary.fineAmount > 0 ? false : loan.finePaid,
+        fineForgiven: returnSummary.fineForgiven,
+      }
     });
 
     await prisma.copy.update({
@@ -192,7 +210,16 @@ router.post('/return/:loanId', requireAuth, async (req, res) => {
       data: { status: 'AVAILABLE' }
     });
 
-    res.json({ message: '归还成功' });
+    res.json({
+      message: '归还成功',
+      loan: {
+        ...returnSummary,
+        id: updatedLoan.id,
+        returnDate: updatedLoan.returnDate,
+        fineAmount: Number(updatedLoan.fineAmount ?? 0),
+        fineForgiven: Boolean(updatedLoan.fineForgiven),
+      }
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: '归还失败' });

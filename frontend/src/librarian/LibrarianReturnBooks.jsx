@@ -10,6 +10,11 @@ export default function LibrarianReturnBooks({ onBack }) {
   const [message, setMessage] = useState('')
   const [stats, setStats] = useState({ total: 0, active: 0, overdue: 0 })
 
+  const formatCurrency = (amount) => {
+    const safeAmount = Number(amount || 0)
+    return `¥${safeAmount.toFixed(2)}`
+  }
+
   const fetchActiveLoans = async () => {
     try {
       setLoading(true)
@@ -35,8 +40,8 @@ export default function LibrarianReturnBooks({ onBack }) {
 
   const handleReturn = async (loanId, waiveFine = false) => {
     const loan = loans.find(l => l.id === loanId)
-    const confirmMsg = waiveFine && loan?.estimatedFine > 0
-      ? `确定接收归还并免除 ${loan.estimatedFine} 元罚款吗？`
+    const confirmMsg = waiveFine && loan?.estimatedFineAmount > 0
+      ? `确定接收归还并免除 ${formatCurrency(loan.estimatedFineAmount)} 的罚款吗？`
       : '确认接收该图书归还吗？'
 
     if (!window.confirm(confirmMsg)) {
@@ -59,7 +64,19 @@ export default function LibrarianReturnBooks({ onBack }) {
         throw new Error(data.message || '还书失败')
       }
 
-      setMessage(`✅ ${data.message}`)
+      const returnedLoan = data.loan
+      if (returnedLoan?.waiveFineApplied) {
+        setMessage(
+          `✅ 归还成功，逾期 ${returnedLoan.overdueDays} 天，原罚款 ${formatCurrency(returnedLoan.originalFineAmount)} 已免除`
+        )
+      } else if (returnedLoan) {
+        const overdueText = returnedLoan.isOverdue
+          ? `逾期 ${returnedLoan.overdueDays} 天，`
+          : ''
+        setMessage(`✅ 归还成功，${overdueText}最终罚款 ${formatCurrency(returnedLoan.fineAmount)}`)
+      } else {
+        setMessage(`✅ ${data.message}`)
+      }
       await fetchActiveLoans()
       
       // 3秒后清除消息
@@ -89,7 +106,7 @@ export default function LibrarianReturnBooks({ onBack }) {
   })
 
   const activeLoans = filteredLoans.filter(l => !l.returnDate)
-  const overdueLoans = activeLoans.filter(l => new Date(l.dueDate) < new Date())
+  const overdueLoans = activeLoans.filter(l => l.isOverdue)
 
   return (
     <div className="bg-white rounded-xl shadow-lg p-6">
@@ -174,13 +191,14 @@ export default function LibrarianReturnBooks({ onBack }) {
                 <th className="px-3 py-3 text-left">借出日期</th>
                 <th className="px-3 py-3 text-left">应还日期</th>
                 <th className="px-3 py-3 text-left">状态</th>
+                <th className="px-3 py-3 text-left">罚款</th>
                 <th className="px-3 py-3 text-left">操作</th>
               </tr>
             </thead>
             <tbody>
               {filteredLoans.filter(l => !l.returnDate).length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="text-center py-8 text-gray-500">
+                  <td colSpan="10" className="text-center py-8 text-gray-500">
                     当前没有在借记录
                   </td>
                 </tr>
@@ -188,11 +206,8 @@ export default function LibrarianReturnBooks({ onBack }) {
                 filteredLoans
                   .filter(l => !l.returnDate)
                   .map((loan) => {
-                    const isOverdue = new Date(loan.dueDate) < new Date()
-                    const daysOverdue = isOverdue
-                      ? Math.ceil((new Date() - new Date(loan.dueDate)) / (1000 * 60 * 60 * 24))
-                      : 0
-                    const estimatedFine = isOverdue ? daysOverdue * 0.5 : 0
+                    const isOverdue = loan.isOverdue
+                    const estimatedFine = Number(loan.estimatedFineAmount || 0)
 
                     return (
                       <tr key={loan.id} className={`border-b hover:bg-gray-50 ${isOverdue ? 'bg-red-50' : ''}`}>
@@ -211,10 +226,10 @@ export default function LibrarianReturnBooks({ onBack }) {
                           {isOverdue ? (
                             <div>
                               <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs">
-                                逾期 {daysOverdue} 天
+                                逾期 {loan.overdueDays} 天
                               </span>
                               <div className="text-xs text-red-500 mt-1">
-                                罚款: ¥{estimatedFine}
+                                预计罚款 {formatCurrency(estimatedFine)}
                               </div>
                             </div>
                           ) : (
@@ -222,6 +237,9 @@ export default function LibrarianReturnBooks({ onBack }) {
                               在借中
                             </span>
                           )}
+                        </td>
+                        <td className={`px-3 py-3 ${estimatedFine > 0 ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+                          {formatCurrency(estimatedFine)}
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex gap-2">

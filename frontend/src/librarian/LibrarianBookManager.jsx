@@ -82,42 +82,84 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
       setLoading(false)
     }
   }
+  // 判断输入是否为 ISBN 格式（10或13位数字，可包含短横线）
+  const isIsbnFormat = (str) => {
+    const clean = str.replace(/-/g, '');
+    return /^\d{10}$/.test(clean) || /^\d{13}$/.test(clean);
+  };
+
   // 搜索图书函数
   const handleSearch = async () => {
     if (!searchTerm.trim()) {
-      // 如果搜索词为空，恢复显示全部图书
-      setSearchResults(null)
-      return
+      setSearchResults(null);
+      setError('');
+      return;
     }
 
-    setLoading(true)
-    setError('')
+    setLoading(true);
+    setError('');
+  
+    const keyword = searchTerm.trim();
   
     try {
-      const response = await fetch(`http://localhost:3001/api/books/search?keyword=${encodeURIComponent(searchTerm)}`)
-      const data = await response.json()
+      // 第一步：先在数据库搜索
+      const response = await fetch(`http://localhost:3001/api/books/search?keyword=${encodeURIComponent(keyword)}`);
+      const data = await response.json();
     
-      if (data.success) {
-        setSearchResults(data.data)
-        console.log('搜索结果数量:', data.data.length)
-        console.log('搜索结果:', data.data)
-        if (data.data.length === 0) {
-          setError('No books found')
+      // 如果找到了结果
+      if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+        setSearchResults(data.data);
+        console.log('搜索结果数量:', data.data.length);
+        console.log('搜索结果:', data.data);
+        setError('');
+        setLoading(false);
+        return;
+      }
+    
+      // 第二步：没找到，且输入的是 ISBN 格式，则调用豆瓣接口
+      if (isIsbnFormat(keyword)) {
+        setError('未在馆藏中找到，正在从豆瓣获取信息...');
+      
+        const lookupRes = await fetch(`http://localhost:3001/api/books/lookup?isbn=${keyword}`);
+        const lookupData = await lookupRes.json();
+      
+        if (lookupData.success && lookupData.data) {
+          // 自动填充新增表单
+          setForm({
+            title: lookupData.data.title || '',
+            author: lookupData.data.author || '',
+            isbn: lookupData.data.isbn || keyword,
+            genre: lookupData.data.genre || '待分类',
+            description: lookupData.data.description || '',
+            language: lookupData.data.language || 'Chinese',
+            floor: 1,
+            libraryArea: '',
+            shelfNo: 'A',
+            shelfLevel: 1,
+            totalCopies: 1,
+            availableCopies: 1
+          });
+          setError('✅ 已从豆瓣获取图书信息，请确认后点击"新增图书"添加至馆藏');
+          // 滚动到表单顶部
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          setSearchResults(null);
         } else {
-          setError('')
+          setError('豆瓣未找到该ISBN对应的图书，请手动添加');
+          setSearchResults([]);
         }
       } else {
-        setSearchResults([])
-        setError('No books found')
+        // 不是ISBN格式，且没找到
+        setSearchResults([]);
+        setError('No books found');
       }
     } catch (err) {
-      console.error('搜索失败:', err)
-      setError('搜索失败，请稍后重试')
-      setSearchResults([])
+      console.error('搜索失败:', err);
+      setError('搜索失败，请稍后重试');
+      setSearchResults([]);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   // 处理搜索输入变化
   const handleSearchChange = (e) => {

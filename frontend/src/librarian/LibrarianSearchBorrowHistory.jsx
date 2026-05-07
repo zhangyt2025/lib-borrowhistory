@@ -224,9 +224,9 @@ export default function LibrarianSearchBorrowHistory({ onBack }) {
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">序号</th>
+                       <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">序号</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">图书名称</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">条形码</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">借书时间</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">应还时间</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">还书时间</th>
@@ -244,9 +244,15 @@ export default function LibrarianSearchBorrowHistory({ onBack }) {
                             <td className="px-4 py-3 text-sm text-gray-600">{index + 1}</td>
                             <td className="px-4 py-3">
                               <div className="font-medium text-gray-800">{record.bookName}</div>
-                              {record.bookCode && (
-                                <div className="text-xs text-gray-400">编号: {record.bookCode}</div>
-                              )}
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              {record.bookCode ? (
+                                <div className="max-w-[180px]">
+                                  <IsbnBarcode isbn={record.bookCode} height={48} />
+                                </div>
+                              ) : (
+                                <span className="text-gray-400 text-sm">-</span>
+                             )}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-600">{formatDate(record.borrowDate)}</td>
                             <td className="px-4 py-3">
@@ -280,7 +286,6 @@ export default function LibrarianSearchBorrowHistory({ onBack }) {
                 </div>
               )}
             </div>
-
             {/* 统计信息 */}
             {borrowHistory.length > 0 && (
               <div className="mt-6 bg-gray-50 rounded-lg p-4">

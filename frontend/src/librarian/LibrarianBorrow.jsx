@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { API_URL, getAuthHeaders } from './api'
 
 export default function LibrarianBorrow() {
@@ -13,6 +13,8 @@ export default function LibrarianBorrow() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [stats, setStats] = useState({ total: 0, active: 0, overdue: 0 })
+  const [scanMode, setScanMode] = useState(null)
+  const scanInputRef = useRef(null)
 
   const searchStudents = async () => {
     setError('')
@@ -73,6 +75,80 @@ export default function LibrarianBorrow() {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const scanStudent = async (studentId) => {
+    setError('')
+    setMessage('')
+    if (!studentId.trim()) {
+      setError('请扫描学号')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await fetch(`${API_URL}/loans/users/scan?studentId=${encodeURIComponent(studentId)}`, {
+        headers: getAuthHeaders('librarian'),
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || '识别失败')
+      }
+
+      setSelectedStudent(data.user)
+      setStudents([])
+      setStudentKeyword(data.user.studentId)
+      setMessage(`✅ 成功识别学生: ${data.user.name}`)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const scanBook = async (isbn) => {
+    setError('')
+    setMessage('')
+    if (!isbn.trim()) {
+      setError('请扫描图书ISBN')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await fetch(`${API_URL}/loans/books/scan?isbn=${encodeURIComponent(isbn)}`, {
+        headers: getAuthHeaders('librarian'),
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || '识别失败')
+      }
+
+      setSelectedBook(data.book)
+      setBooks([])
+      setBookKeyword(data.book.isbn)
+      setMessage(`✅ 成功识别图书: ${data.book.title}`)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleScanInput = (e) => {
+    if (e.key === 'Enter') {
+      const value = e.target.value
+      if (value && value.trim()) {
+        if (scanMode === 'student') {
+          scanStudent(value)
+        } else if (scanMode === 'book') {
+          scanBook(value)
+        }
+        e.target.value = ''
+      }
     }
   }
 
@@ -169,6 +245,17 @@ export default function LibrarianBorrow() {
             >
               搜索
             </button>
+            <button
+              onClick={() => setScanMode('student')}
+              className={`px-4 py-2 rounded-lg transition ${
+                scanMode === 'student' 
+                  ? 'bg-orange-500 text-white' 
+                  : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+              }`}
+              disabled={loading}
+            >
+              📱 扫码
+            </button>
           </div>
           {students.length > 0 && (
             <div className="max-h-64 overflow-y-auto space-y-2 border rounded-lg p-2">
@@ -219,6 +306,17 @@ export default function LibrarianBorrow() {
               disabled={loading}
             >
               搜索
+            </button>
+            <button
+              onClick={() => setScanMode('book')}
+              className={`px-4 py-2 rounded-lg transition ${
+                scanMode === 'book' 
+                  ? 'bg-orange-500 text-white' 
+                  : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+              }`}
+              disabled={loading}
+            >
+              📱 扫码
             </button>
           </div>
           {books.length > 0 && (
@@ -279,6 +377,37 @@ export default function LibrarianBorrow() {
       {message && (
         <div className="mt-4 p-3 bg-green-50 border border-green-200 text-green-600 rounded-lg">
           {message}
+        </div>
+      )}
+
+      {/* 扫码输入区域 */}
+      {scanMode && (
+        <div className="mt-4 p-4 bg-orange-50 border-2 border-orange-300 rounded-lg">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">📷</span>
+              <span className="font-semibold text-orange-700">
+                {scanMode === 'student' ? '请扫描学生学号' : '请扫描图书ISBN'}
+              </span>
+            </div>
+            <button
+              onClick={() => setScanMode(null)}
+              className="text-gray-500 hover:text-gray-700 text-xl"
+            >
+              ✕
+            </button>
+          </div>
+          <input
+            ref={scanInputRef}
+            type="text"
+            onKeyDown={handleScanInput}
+            className="w-full px-4 py-3 border-2 border-orange-300 rounded-lg text-lg text-center focus:outline-none focus:border-orange-500"
+            placeholder="扫描条码后自动识别..."
+            autoFocus
+          />
+          <p className="text-xs text-orange-600 text-center mt-2">
+            提示：扫描设备读取条码后会自动输入并识别
+          </p>
         </div>
       )}
 

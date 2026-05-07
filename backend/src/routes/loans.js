@@ -113,6 +113,133 @@ router.get('/books/search', requireAuth, checkLibrarianOrAdmin, async (req, res)
   }
 });
 
+router.get('/users/scan', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
+  try {
+    const { studentId } = req.query;
+    if (!studentId || !studentId.trim()) {
+      return res.status(400).json({ success: false, message: '请提供学号' });
+    }
+
+    const student = await prisma.user.findUnique({
+      where: { studentId: studentId.trim() },
+      select: { id: true, name: true, email: true, studentId: true, role: true }
+    });
+
+    if (!student || student.role !== 'STUDENT') {
+      return res.status(404).json({ success: false, message: '未找到该学生' });
+    }
+
+    const currentBorrowCount = await prisma.loan.count({
+      where: { userId: student.id, returnDate: null }
+    });
+    const overdueLoans = await prisma.loan.count({
+      where: {
+        userId: student.id,
+        returnDate: null,
+        dueDate: { lt: startOfLocalDay() }
+      }
+    });
+
+    res.json({
+      success: true,
+      user: {
+        ...student,
+        stats: {
+          currentBorrowCount,
+          hasOverdue: overdueLoans > 0,
+        },
+      }
+    });
+  } catch (error) {
+    console.error('Scan student error:', error);
+    res.status(500).json({ success: false, message: '识别学生失败' });
+  }
+});
+
+router.get('/books/scan', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
+  try {
+    const { isbn } = req.query;
+    if (!isbn || !isbn.trim()) {
+      return res.status(400).json({ success: false, message: '请提供图书ISBN' });
+    }
+
+    const book = await prisma.book.findUnique({
+      where: { isbn: isbn.trim() },
+      include: { copies: { select: { id: true, barcode: true, status: true } } }
+    });
+
+    if (!book) {
+      return res.status(404).json({ success: false, message: '未找到该图书' });
+    }
+
+    const availableCopies = book.copies.filter((copy) => copy.status === 'AVAILABLE').length;
+
+    res.json({
+      success: true,
+      book: {
+        id: book.id,
+        title: book.title,
+        author: book.author,
+        isbn: book.isbn,
+        genre: book.genre,
+        availableCopies,
+        totalCopies: book.copies.length,
+      },
+    });
+  } catch (error) {
+    console.error('Scan book error:', error);
+    res.status(500).json({ success: false, message: '识别图书失败' });
+  }
+});
+
+router.get('/loans/scan', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
+  try {
+    const { isbn } = req.query;
+    if (!isbn || !isbn.trim()) {
+      return res.status(400).json({ success: false, message: '请提供图书ISBN' });
+    }
+
+    const book = await prisma.book.findUnique({
+      where: { isbn: isbn.trim() },
+      include: { copies: { select: { id: true, barcode: true } } }
+    });
+
+    if (!book) {
+      return res.status(404).json({ success: false, message: '未找到该图书' });
+    }
+
+    const copyIds = book.copies.map(copy => copy.id);
+    const loan = await prisma.loan.findFirst({
+      where: {
+        copyId: { in: copyIds },
+        returnDate: null
+      },
+      include: {
+        user: { select: { id: true, name: true, studentId: true } },
+        copy: { include: { book: { select: { id: true, title: true, isbn: true } } } }
+      }
+    });
+
+    if (!loan) {
+      return res.status(404).json({ success: false, message: '该图书当前没有借出记录' });
+    }
+
+    const fineRatePerDay = await getFineRatePerDay();
+    const decoratedLoan = decorateLoanWithFine(loan, fineRatePerDay);
+
+    res.json({
+      success: true,
+      loan: {
+        ...decoratedLoan,
+        status: decoratedLoan.isOverdue ? 'overdue' : 'active'
+      }
+    });
+  } catch (error) {
+    console.error('Scan loan error:', error);
+    res.status(500).json({ success: false, message: '识别借阅记录失败' });
+  }
+});
+
 router.post('/lend', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
   try {
     const { userId, bookId } = req.body;
@@ -189,7 +316,7 @@ router.get('/records', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
       where: { returnDate: null },
       include: {
         user: { select: { id: true, name: true, studentId: true } },
-        copy: { include: { book: { select: { id: true, title: true } } } }
+        copy: { include: { book: { select: { id: true, title: true, isbn: true } } } }
       },
       orderBy: { checkoutDate: 'desc' }
     });
